@@ -1,0 +1,40 @@
+Create a system that processes categorized transaction events and flags potential fraud.
+Apply a set of fraud rules per transaction based on different criteria and then store them in a data store.
+Allow the retrieval of this data via an API.
+
+SOME IDEAS:
+
+Data needs to be streaming in real-time, so we can use a message queue like Kafka.
+WHY: Kafka allows us to handle high throughput and low latency, which is essential for real-time processing of transaction events.
+
+DATA will be categorized transaction events, which means we can use a schema to define the structure of the data.
+WHY: Using a schema helps ensure data consistency and makes it easier to process and analyze the data.
+EXAMPLE of categorized transaction events could include:
+- Transaction ID
+- User ID
+- Amount
+- Timestamp
+- Location
+- Merchant Category
+
+We can apply a set of fraud rules to each transaction based on different criteria, such as:
+- Transaction amount exceeding a certain threshold
+- Transactions occurring in a different location than the user's usual location
+- Multiple transactions in a short period of time
+- Transactions from high-risk merchants
+
+
+The system should allow for creation of custom fraud rules, which can be defined by the users or administrators.
+These rules can be based on various factors such as user behavior, transaction patterns, and historical data.
+Once the fraud rules are applied, we can flag potential fraudulent transactions and store them in a data store for further analysis.
+
+
+API should have a CRUD (Create, Read, Update, Delete) functionality to manage the fraud rules and retrieve flagged transactions.
+The API can be built using a FastApi, and it should provide endpoints for:
+- Creating new fraud rules
+- Retrieving existing fraud rules
+- Updating existing fraud rules
+- Deleting existing fraud rules
+- Retrieving flagged transactions based on certain criteria (e.g., date range, user ID, etc.)
+Overall, this system will help in identifying potential fraudulent transactions in real-time and allow for easy management of fraud rules 
+and retrieval of flagged transactions for further analysis.
