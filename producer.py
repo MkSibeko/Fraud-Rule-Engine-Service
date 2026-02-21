@@ -1,5 +1,6 @@
 """Produce transactions to kafka topic"""
 
+import os
 import socket
 import random
 import uuid
@@ -7,8 +8,15 @@ import json
 from datetime import datetime
 from confluent_kafka import Producer
 
-conf: dict = {'bootstrap.servers': 'host1:9092,host2:9092',
-        'client.id': socket.gethostname()}
+# When running locally:            export KAFKA_BOOTSTRAP_SERVERS=localhost:29092
+# When running inside Docker:      set automatically by docker-compose (broker:9092)
+_BOOTSTRAP_SERVERS: str = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092')
+_NUM_TRANSACTIONS: int = int(os.getenv('NUM_TRANSACTIONS', '100'))
+
+conf: dict = {
+    'bootstrap.servers': _BOOTSTRAP_SERVERS,
+    'client.id': socket.gethostname(),
+}
 
 # ── Merchant catalogues ────────────────────────────────────────────────────────
 NORMAL_MERCHANTS: list[tuple[str, str]] = [
@@ -220,3 +228,6 @@ def publish_transactions(num_transactions: int = 100) -> None:
                 callback=ack,
             )
         producer.flush()
+
+if __name__ == "__main__":
+    publish_transactions(_NUM_TRANSACTIONS)

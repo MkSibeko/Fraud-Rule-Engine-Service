@@ -21,6 +21,7 @@ COPY --from=builder /install /usr/local
 
 # Copy application source
 COPY app/ ./app/
+COPY producer.py .
 
 USER appuser
 
