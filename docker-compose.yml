@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    image: fraud-rule-engine:latest
+    container_name: fraud-rule-engine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
