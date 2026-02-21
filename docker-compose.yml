@@ -24,7 +24,6 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  # ── FastAPI fraud-rule engine ────────────────────────────────────────────────
   api:
     build: .
     image: fraud-rule-engine:latest
@@ -43,7 +42,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Transaction producer ─────────────────────────────────────────────────────
   producer:
     build: .
     container_name: transaction-producer
