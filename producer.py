@@ -8,8 +8,6 @@ import json
 from datetime import datetime
 from confluent_kafka import Producer
 
-# When running locally:            export KAFKA_BOOTSTRAP_SERVERS=localhost:29092
-# When running inside Docker:      set automatically by docker-compose (broker:9092)
 _BOOTSTRAP_SERVERS: str = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092')
 _NUM_TRANSACTIONS: int = int(os.getenv('NUM_TRANSACTIONS', '100'))
 
