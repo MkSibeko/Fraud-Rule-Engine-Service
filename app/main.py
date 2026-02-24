@@ -1,5 +1,6 @@
 """Fraud Rule Engine"""
 import random
+import logging as log
 
 from fastapi import FastAPI
 from .model import Prediction, PredictionResult, TransactionData
@@ -12,7 +13,7 @@ app.state.model_artifact = None
 @app.get("/")
 async def read_root():
     """Heath Check"""
-    return {"Hello": "World"}
+    return {"Hello": "World!"}
 
 
 @app.get("/items/{item_id}")
@@ -27,6 +28,10 @@ async def detect_if_fraud(transaction_data: TransactionData) -> PredictionResult
     if app.state.model_artifact is None:
         app.state.model_artifact = load_model_artifact()
 
+    device_trust_score = random.randint(0, 100) \
+                        if not transaction_data.metadata.device_trust_score \
+                        else transaction_data.metadata.device_trust_score
+    
     data: dict[str, str | float | int | bool] = {
         "transaction_id": transaction_data.transaction.transaction_id,
         "amount": transaction_data.transaction.amount,
@@ -34,10 +39,13 @@ async def detect_if_fraud(transaction_data: TransactionData) -> PredictionResult
         "merchant_category": transaction_data.metadata.merchant_category,
         "foreign_transaction": transaction_data.metadata.foreign_transaction,
         "location_mismatch": transaction_data.metadata.location_mismatch,
-        "device_trust_score": random.randint(0, 100),
+        "device_trust_score": device_trust_score,
         "velocity_last_24h": transaction_data.metadata.velocity_last_24h,
         "cardholder_age": transaction_data.metadata.cardholder_age,
     }
+
+    log.info(data)
+
 
     is_fraud, fraud_probability = predict_transaction(data, app.state.model_artifact)
 

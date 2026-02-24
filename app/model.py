@@ -30,6 +30,7 @@ class TransactionMetadata(BaseModel):
     foreign_transaction: bool = Field(description="Is the transaction from a foreign country")
     velocity_last_24h: int = Field(description="Number of transactions in the last 24 hours")
     cardholder_age: int = Field(description="The age of the card holder")
+    device_trust_score: Optional[int] = Field(None, ge=0, le=100, description="Percentage of trust for the merchant")
 
 class TransactionData(BaseModel):
     """API request body for fraud detection"""

@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-MODEL_ARTIFACT_PATH = "fraud_detection/best_fraud_model.pkl"
+MODEL_ARTIFACT_PATH = "app/fraud_detection/best_fraud_model.pkl"
 
 
 def load_model_artifact(model_file_name: str = MODEL_ARTIFACT_PATH) -> dict[str, Any]:
@@ -23,23 +23,14 @@ def _encode_merchant_category(raw_value: str, encoder) -> int:
 
 def transaction_data_to_model_input(data: dict[str, Any], artifact: dict[str, Any]) -> np.ndarray:
     """Convert API transaction payload into a scaled model-ready row."""
-    feature_values = {
-        "amount": float(data["amount"]),
-        "transaction_hour": int(data["transaction_hour"]),
-        "merchant_category": _encode_merchant_category(
+
+    data["merchant_category"] = _encode_merchant_category(
             str(data["merchant_category"]), artifact["merchant_category_encoder"]
-        ),
-        "foreign_transaction": int(bool(data["foreign_transaction"])),
-        "location_mismatch": int(bool(data["location_mismatch"])),
-        "device_trust_score": float(data["device_trust_score"]),
-        "velocity_last_24h": int(data["velocity_last_24h"]),
-        "cardholder_age": int(data["cardholder_age"]),
-    }
+        )
+    data["night_transaction"] = int(data["transaction_hour"] in [0, 1, 2, 3])
+    data["high_amount"] = int(data["amount"] > 900)
 
-    feature_values["night_transaction"] = int(feature_values["transaction_hour"] in [0, 1, 2, 3])
-    feature_values["high_amount"] = int(feature_values["amount"] > 900)
-
-    ordered_features = [feature_values[column] for column in artifact["feature_columns"]]
+    ordered_features = [data[column] for column in artifact["feature_columns"]]
     model_input = np.array([ordered_features], dtype=float)
 
     scaler = artifact["scaler"]
