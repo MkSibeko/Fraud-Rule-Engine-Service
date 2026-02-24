@@ -2,19 +2,16 @@
 from __future__ import annotations
 
 import pickle
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-MODEL_ARTIFACT_PATH = (
-    Path(__file__).resolve().parents[1] / "fraud_detection_model" / "best_fraud_model.pkl"
-)
+MODEL_ARTIFACT_PATH = "fraud_detection/best_fraud_model.pkl"
 
 
-def load_model_artifact(path: Path = MODEL_ARTIFACT_PATH) -> dict[str, Any]:
+def load_model_artifact(model_file_name: str = MODEL_ARTIFACT_PATH) -> dict[str, Any]:
     """Load the pickled model artifact produced by the training script."""
-    with path.open("rb") as model_file:
+    with open(model_file_name, "rb") as model_file:
         return pickle.load(model_file)
 
 
