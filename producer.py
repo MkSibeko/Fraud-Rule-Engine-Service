@@ -10,11 +10,15 @@ from confluent_kafka import Producer
 
 _BOOTSTRAP_SERVERS: str = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092')
 _NUM_TRANSACTIONS: int = int(os.getenv('NUM_TRANSACTIONS', '100'))
+_TOPIC: str = os.getenv('KAFKA_TOPIC', 'transactions')
 
 conf: dict = {
     'bootstrap.servers': _BOOTSTRAP_SERVERS,
     'client.id': socket.gethostname(),
 }
+
+# Transaction types matching the TransactionType enum
+TRANSACTION_TYPES: list[str] = ["DEBIT", "CREDIT", "TRANSFER", "WITHDRAWAL", "DEPOSIT"]
 
 # ── Merchant catalogues ────────────────────────────────────────────────────────
 NORMAL_MERCHANTS: list[tuple[str, str]] = [
@@ -124,7 +128,7 @@ def generate_transaction() -> dict:
     is_fraudulent: bool = random.random() < 0.20  # 20 % fraud rate
 
     account_number: str = f"CAPITEC{random.randint(1_000_000_000, 9_999_999_999)}"
-    card_last4: str = str(random.randint(1000, 9999))
+    strategy: str = "none"
 
     # ── Build fraud / normal parameters ───────────────────────────────────────
     if is_fraudulent:
@@ -134,48 +138,38 @@ def generate_transaction() -> dict:
             merchant_name, merchant_category = random.choice(FRAUDULENT_MERCHANTS)
             amount: float = round(random.uniform(5_000, 50_000), 2)
             location: str = random.choice(FOREIGN_LOCATIONS)
-            card_present: bool = False
             hour: int = random.randint(0, 23)
 
         elif strategy == "card_not_present_high_value":
             merchant_name, merchant_category = random.choice(FRAUDULENT_MERCHANTS)
             amount = round(random.uniform(8_000, 30_000), 2)
             location = random.choice(FOREIGN_LOCATIONS)
-            card_present = False
             hour = random.randint(1, 4)          # Early hours
 
         elif strategy == "odd_hours_large_amount":
             merchant_name, merchant_category = random.choice(NORMAL_MERCHANTS)
             amount = round(random.uniform(3_000, 20_000), 2)
             location = random.choice(SA_LOCATIONS)
-            card_present = True
             hour = random.choice([1, 2, 3, 4])  # Suspicious window
 
         elif strategy == "unusual_merchant_category":
             merchant_name, merchant_category = random.choice(FRAUDULENT_MERCHANTS)
             amount = round(random.uniform(500, 15_000), 2)
             location = random.choice(SA_LOCATIONS + FOREIGN_LOCATIONS)
-            card_present = random.choice([True, False])
             hour = random.randint(0, 23)
 
         else:  # rapid_small_transactions
             merchant_name, merchant_category = random.choice(NORMAL_MERCHANTS)
             amount = round(random.uniform(1, 49), 2)
             location = random.choice(SA_LOCATIONS)
-            card_present = False
             hour = random.randint(0, 23)
-
-        fraud_type: str | None = strategy
 
     else:
         # ── Ordinary Capitec transaction ───────────────────────────────────
         merchant_name, merchant_category = random.choice(NORMAL_MERCHANTS)
         amount = round(random.uniform(5, 2_500), 2)
         location = random.choice(SA_LOCATIONS)
-        card_present = True
         hour = random.randint(7, 21)   # Normal business hours
-        fraud_type = None
-        strategy = "none"
 
     # Timestamp anchored to today with the chosen hour
     now = datetime.now()
@@ -186,46 +180,57 @@ def generate_transaction() -> dict:
         microsecond=0,
     )
 
-    transaction_schema: dict = {
-        "transaction_id": str(uuid.uuid4()),
-        "timestamp": timestamp.isoformat(),
-        "account_number": account_number,
-        "card_last4": card_last4,
-        "amount": amount,
-        "currency": "ZAR",
-        # Weighted so debits are ~3× more frequent than credits
-        "transaction_type": random.choices(["DEBIT", "CREDIT"], weights=[75, 25])[0],
-        "merchant_name": merchant_name,
-        "merchant_category": merchant_category,
-        "merchant_location": location,
-        "card_present": card_present,
-        # CNP transactions carry additional digital fingerprints
-        "ip_address": (
-            f"{random.randint(1,255)}.{random.randint(0,255)}."
-            f"{random.randint(0,255)}.{random.randint(1,254)}"
-            if not card_present else None
-        ),
-        "device_fingerprint": str(uuid.uuid4()) if not card_present else None,
-        # Label fields – used by the fraud-rule engine for evaluation
-        # "is_fraudulent": is_fraudulent,
-        # "fraud_type": fraud_type,
+    # Determine if foreign transaction based on location
+    is_foreign = location not in SA_LOCATIONS
+    
+    # Generate velocity (higher for fraudulent rapid transactions)
+    velocity_last_24h = random.randint(10, 50) if strategy == "rapid_small_transactions" else random.randint(1, 10)
+    
+    # Generate cardholder age
+    cardholder_age = random.randint(18, 75)
+    
+    # Device trust score (lower for suspicious transactions)
+    device_trust_score = random.randint(10, 40) if is_fraudulent else random.randint(60, 100)
+
+    # Build TransactionData schema matching the API model
+    transaction_data: dict = {
+        "transaction": {
+            "transaction_id": str(uuid.uuid4()),
+            "account_id": account_number,
+            "amount": amount,
+            "transaction_type": random.choices(TRANSACTION_TYPES, weights=[40, 20, 15, 15, 10])[0],
+            "merchant_id": f"MERCHANT_{random.randint(1000, 9999)}",
+            "timestamp": timestamp.isoformat(),
+            "description": f"Transaction at {merchant_name}",
+        },
+        "metadata": {
+            "merchant_name": merchant_name,
+            "merchant_category": merchant_category,
+            "location_mismatch": is_foreign or (is_fraudulent and random.random() < 0.7),
+            "foreign_transaction": is_foreign,
+            "velocity_last_24h": velocity_last_24h,
+            "cardholder_age": cardholder_age,
+            "device_trust_score": device_trust_score,
+        },
     }
 
-    return transaction_schema
+    return transaction_data
 
 
 def publish_transactions(num_transactions: int = 100) -> None:
     """Bank transactions published to transaction topic"""
-    with Producer(conf) as producer:
-        for _ in range(num_transactions):
-            transaction = generate_transaction()
-            producer.produce(
-                topic='transactions',
-                key=transaction["account_number"],
-                value=json.dumps(transaction).encode('utf-8'),
-                callback=ack,
-            )
-        producer.flush()
+    producer = Producer(conf)
+    for _ in range(num_transactions):
+        transaction = generate_transaction()
+        producer.produce(
+            topic=_TOPIC,
+            key=transaction["transaction"]["account_id"],
+            value=json.dumps(transaction).encode('utf-8'),
+            callback=ack,
+        )
+    producer.flush()
+    print(f"Published {num_transactions} transactions to topic '{_TOPIC}'")
+
 
 if __name__ == "__main__":
     publish_transactions(_NUM_TRANSACTIONS)

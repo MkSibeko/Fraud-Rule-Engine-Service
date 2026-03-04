@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import pickle
+import random
 from typing import Any
 
 import numpy as np
+from app.models.model import TransactionData
+from app.services.prediction_store import PredictionResult
 
 MODEL_ARTIFACT_PATH = "app/fraud_detection/best_fraud_model.pkl"
 
@@ -52,4 +55,33 @@ def predict_transaction(data: dict[str, Any], artifact: dict[str, Any] | None = 
     return (
         bool(predicted_class),
         fraud_probability,
+    )
+
+
+def predictor_utility(transaction_data: TransactionData, model_artifact ) -> PredictionResult:
+
+    device_trust_score = random.randint(0, 100) \
+                        if not transaction_data.metadata.device_trust_score \
+                        else transaction_data.metadata.device_trust_score
+    
+    data: dict[str, str | float | int | bool] = {
+        "transaction_id": transaction_data.transaction.transaction_id,
+        "amount": transaction_data.transaction.amount,
+        "transaction_hour": transaction_data.transaction.timestamp.hour,
+        "merchant_category": transaction_data.metadata.merchant_category,
+        "foreign_transaction": transaction_data.metadata.foreign_transaction,
+        "location_mismatch": transaction_data.metadata.location_mismatch,
+        "device_trust_score": device_trust_score,
+        "velocity_last_24h": transaction_data.metadata.velocity_last_24h,
+        "cardholder_age": transaction_data.metadata.cardholder_age,
+    }
+
+    is_fraud, fraud_probability = predict_transaction(data, model_artifact)
+
+    return PredictionResult(
+        transaction_id=transaction_data.transaction.transaction_id,
+        merchant_id=transaction_data.transaction.merchant_id,
+        account_id=transaction_data.transaction.account_id,
+        is_fraud=is_fraud,
+        fraud_probability=fraud_probability,
     )

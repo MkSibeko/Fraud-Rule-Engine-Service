@@ -38,15 +38,3 @@ class TransactionData(BaseModel):
     metadata: TransactionMetadata
 
 
-class Prediction(BaseModel):
-    """Prediction payload returned by fraud model"""
-    is_fraud: bool = Field(description="Whether the transaction is predicted as fraud")
-    fraud_probability: float = Field(description="Predicted fraud probability")
-
-
-class PredictionResult(BaseModel):
-    """API response body for fraud detection endpoint"""
-    transaction_id: str = Field(description="Unique transaction identifier")
-    merchant_id: Optional[str] = Field(None, description="Merchant identifier")
-    account_id: str = Field(description="Account identifier")
-    prediction: Prediction
