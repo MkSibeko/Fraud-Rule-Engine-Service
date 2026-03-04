@@ -55,3 +55,16 @@ services:
       broker:
         condition: service_healthy
     restart: on-failure
+
+  consumer:
+    build: .
+    container_name: transaction-consumer
+    command: python consumer.py
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - KAFKA_BOOTSTRAP_SERVERS=broker:9092
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure
