@@ -2,9 +2,10 @@ fastapi[standard]
 uvicorn[standard]
 confluent-kafka
 numpy
+xgboost
+sqlmodel
 # polars
 # matplotlib
 # seaborn
 # scikit-learn
 # imbalanced-learn
-xgboost

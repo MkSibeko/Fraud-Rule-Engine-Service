@@ -2,12 +2,12 @@
 
 import os
 import json
-import random
 import signal
 from datetime import datetime
 from typing import Any
 from confluent_kafka import Consumer, KafkaError, KafkaException
 
+from app.models.model import TransactionData
 from app.services.predictor import load_model_artifact, predictor_utility
 from app.services.prediction_store import (
     PredictionResult,
@@ -49,7 +49,7 @@ def parse_transaction_data(message_value: bytes | None) -> dict | None:
         return None
 
 
-def process_transaction(transaction_data: dict, model_artifact: dict) -> PredictionResult | None:
+def process_transaction(transaction_data: TransactionData, model_artifact: dict) -> PredictionResult | None:
     """Process a transaction and predict if it's fraud."""
     try:
         return predictor_utility(transaction_data, model_artifact)
@@ -91,17 +91,16 @@ def consume_transactions() -> None:
             if msg is None:
                 continue
 
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    # End of partition, not an error
-                    continue
-                else:
-                    raise KafkaException(msg.error())
+            if error := msg.error():
+                raise KafkaException(error)
 
             # Parse and process the transaction
             transaction_data = parse_transaction_data(msg.value())
             if transaction_data is None:
                 continue
+
+            transaction_data = TransactionData(transaction=transaction_data.get("transaction", {}),
+                                               metadata=transaction_data.get("metadata", {}))
 
             prediction_result = process_transaction(transaction_data, model_artifact)
             if prediction_result is None:
