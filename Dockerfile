@@ -3,10 +3,12 @@ FROM python:3.14-slim AS builder
 
 WORKDIR /app
 
+# Install uv for faster dependency resolution
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Install dependencies into an isolated prefix so the final image stays lean
 COPY requirements.txt .
-RUN pip install --upgrade pip \
- && pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # ── Runtime stage ─────────────────────────────────────────────
 FROM python:3.14-slim AS runtime
@@ -17,11 +19,12 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 WORKDIR /app
 
 # Pull installed packages from builder
-COPY --from=builder /install /usr/local
+COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application source
 COPY app/ ./app/
-COPY producer.py .
+COPY producer.py consumer.py ./
 USER appuser
 
 EXPOSE 8000
