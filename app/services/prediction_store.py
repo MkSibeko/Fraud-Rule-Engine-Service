@@ -1,7 +1,7 @@
 from typing import Optional
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-engine = create_engine("sqlite:///frauddetection.db")
+engine = create_engine("sqlite:///data/frauddetection.db")
 
 class PredictionResult(SQLModel, table=True):
     """API response body for fraud detection endpoint"""
