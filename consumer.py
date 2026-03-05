@@ -106,9 +106,11 @@ def consume_transactions() -> None:
             transaction_data = TransactionData(transaction=transaction_data.get("transaction", {}),
                                                metadata=transaction_data.get("metadata", {}))
 
-            prediction_result = detect_fraud(transaction_data)
-            if prediction_result is None:
+            result = detect_fraud(transaction_data)
+            if result is None:
                 continue
+            
+            prediction_result = PredictionResult.model_validate(result)
 
             # Persist the prediction result to SQLite
             try:
