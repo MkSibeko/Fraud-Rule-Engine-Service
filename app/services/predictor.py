@@ -65,7 +65,7 @@ def predictor_utility(transaction_data: TransactionData, model_artifact ) -> Pre
                         else transaction_data.metadata.device_trust_score
     
     data: dict[str, str | float | int | bool] = {
-        "transaction_id": transaction_data.transaction.transaction_id,
+        "transaction_id": 0,
         "amount": transaction_data.transaction.amount,
         "transaction_hour": transaction_data.transaction.timestamp.hour,
         "merchant_category": transaction_data.metadata.merchant_category,

@@ -32,7 +32,7 @@ async def read_prediction_results() -> list[PredictionResult]:
     """Get all fraud detection results"""
     return get_all_prediction_results()
 
-@app.get("/detect/{transaction_id}", response_model=list[PredictionResult])
-async def read_prediction_result(transaction_id: int) -> list[PredictionResult]:
+@app.get("/detect/{transaction_id}", response_model=PredictionResult | None)
+async def read_prediction_result(transaction_id: str) -> PredictionResult | None:
     """Get a fraud detection result by transaction id"""
     return get_a_prediction_result(transaction_id)

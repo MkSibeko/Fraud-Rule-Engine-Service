@@ -21,12 +21,16 @@ def persist_prediction_result(prediction_result: PredictionResult):
         session.refresh(prediction_result)
         return prediction_result
 
-def get_all_prediction_results():
+def get_all_prediction_results() -> list[PredictionResult]:
     with Session(engine) as session:
-        return session.exec(select(PredictionResult)).all()
+        results = session.exec(select(PredictionResult)).all()
+        return [PredictionResult.model_validate(r) for r in results]
 
-def get_a_prediction_result(transaction_id):
+def get_a_prediction_result(transaction_id) -> PredictionResult | None:
     with Session(engine) as session:
         statement = select(PredictionResult)\
                         .where(PredictionResult.transaction_id == transaction_id)
-        return session.exec(statement).first()
+        result = session.exec(statement).first()
+        if result:
+            return PredictionResult.model_validate(result)
+        return None
