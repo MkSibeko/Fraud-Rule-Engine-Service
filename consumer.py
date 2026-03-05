@@ -45,13 +45,31 @@ def parse_transaction_data(message_value: bytes | None) -> dict | None:
         return None
 
 
-def detect_fraud(data: TransactionData):
+def detect_fraud(data: TransactionData) -> dict | None:
+    """Call the fraud detection API and return the prediction result."""
     if not _FRAUD_URL:
-        raise(Exception("Fraud API url not set"))
+        raise Exception("Fraud API url not set")
     
-    response = requests.post(f"{_FRAUD_URL}/detect", json=data)
-    
-    return response.json()
+    try:
+        response = requests.post(
+            f"{_FRAUD_URL}/detect",
+            json=data.model_dump(mode="json"),
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.Timeout:
+        print(f"Fraud API request timed out for transaction {data.transaction.transaction_id}")
+        return None
+    except requests.exceptions.ConnectionError as e:
+        print(f"Failed to connect to Fraud API: {e}")
+        return None
+    except requests.exceptions.HTTPError as e:
+        print(f"Fraud API returned error {response.status_code}: {e}")
+        return None
+    except requests.exceptions.JSONDecodeError as e:
+        print(f"Failed to parse Fraud API response: {e}")
+        return None
 
 
 def consume_transactions() -> None:

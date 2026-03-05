@@ -4,8 +4,6 @@ confluent-kafka
 numpy
 xgboost
 sqlmodel
-# polars
-# matplotlib
-# seaborn
-# scikit-learn
-# imbalanced-learn
+requests
+scikit-learn
+imbalanced-learn
