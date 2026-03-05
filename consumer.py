@@ -3,22 +3,18 @@
 import os
 import json
 import signal
-from datetime import datetime
+import requests
 from typing import Any
 from confluent_kafka import Consumer, KafkaError, KafkaException
 
 from app.models.model import TransactionData
-from app.services.predictor import load_model_artifact, predictor_utility
-from app.services.prediction_store import (
-    PredictionResult,
-    persist_prediction_result,
-    init_datastore,
-)
+from app.services.prediction_store import PredictionResult
 
 _BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
 _GROUP_ID: str = os.getenv("KAFKA_GROUP_ID", "fraud-detection-group")
 _TOPIC: str = os.getenv("KAFKA_TOPIC", "transactions")
 _AUTO_OFFSET_RESET: str = os.getenv("KAFKA_AUTO_OFFSET_RESET", "earliest")
+_FRAUD_URL: str = os.getenv("FRAUD_API_URL", "")
 
 conf: dict = {
     "bootstrap.servers": _BOOTSTRAP_SERVERS,
@@ -49,14 +45,13 @@ def parse_transaction_data(message_value: bytes | None) -> dict | None:
         return None
 
 
-def process_transaction(transaction_data: TransactionData, model_artifact: dict) -> PredictionResult | None:
-    """Process a transaction and predict if it's fraud."""
-    try:
-        return predictor_utility(transaction_data, model_artifact)
-
-    except Exception as e:
-        print(f"Error processing transaction: {e}")
-        return None
+def detect_fraud(data: TransactionData):
+    if not _FRAUD_URL:
+        raise(Exception("Fraud API url not set"))
+    
+    response = requests.post(f"{_FRAUD_URL}/detect", json=data)
+    
+    return response.json()
 
 
 def consume_transactions() -> None:
@@ -66,15 +61,6 @@ def consume_transactions() -> None:
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-
-    # Initialize the database
-    init_datastore()
-    print("Initialized SQLite datastore")
-
-    # Load the model artifact once
-    print("Loading fraud detection model...")
-    model_artifact = load_model_artifact()
-    print("Model loaded successfully")
 
     # Create Kafka consumer
     consumer = Consumer(conf)
@@ -102,13 +88,12 @@ def consume_transactions() -> None:
             transaction_data = TransactionData(transaction=transaction_data.get("transaction", {}),
                                                metadata=transaction_data.get("metadata", {}))
 
-            prediction_result = process_transaction(transaction_data, model_artifact)
+            prediction_result = detect_fraud(transaction_data)
             if prediction_result is None:
                 continue
 
             # Persist the prediction result to SQLite
             try:
-                persist_prediction_result(prediction_result)
                 processed_count += 1
                 if prediction_result.is_fraud:
                     fraud_count += 1

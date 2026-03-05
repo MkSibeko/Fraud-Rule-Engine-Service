@@ -67,6 +67,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
       - KAFKA_BOOTSTRAP_SERVERS=broker:9092
+      - FRAUD_API_URL=http://api:8000
     depends_on:
       broker:
         condition: service_healthy

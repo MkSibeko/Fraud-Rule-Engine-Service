@@ -16,7 +16,7 @@ from app.services.prediction_store import (
 )
 from app.models.model import TransactionData, Transaction, TransactionMetadata
 from app.main import app
-from consumer import parse_transaction_data, process_transaction
+from consumer import parse_transaction_data, detect_fraud
 
 # Test with an in-memory SQLite database
 TEST_DATABASE_URL = "sqlite:///tests/test_frauddetection.db"
@@ -218,6 +218,10 @@ class TestHTTPAPIDatabase:
 class TestKafkaConsumerDatabase:
     """Tests for the Kafka consumer database interactions."""
 
+    @pytest.fixture
+    def setenvsvar(self, monkeypatch):
+        monkeypatch.setenv("FRAUD_API_URL", "TestingUser")
+
     def test_consumer_persists_prediction_to_database(self, test_engine):
         """Test that the consumer correctly persists predictions."""
         with patch("app.services.prediction_store.engine", test_engine):
@@ -239,16 +243,10 @@ class TestKafkaConsumerDatabase:
             assert results[0].is_fraud is True
             assert results[0].fraud_probability == 0.75
 
-    def test_consumer_process_transaction_integration(self, test_engine):
+    def test_consumer_process_transaction_integration(self, test_engine, monkeypatch):
         """Test the full consumer transaction processing flow."""
         with patch("app.services.prediction_store.engine", test_engine):
-            with patch("consumer.load_model_artifact") as mock_load:
-                init_datastore()
-                
-                # Create mock model artifact
-                mock_artifact = MagicMock()
-                mock_load.return_value = mock_artifact
-                
+            with patch("consumer._FRAUD_URL", "http://localhost:8000"):
                 # Create test transaction data
                 transaction_data = TransactionData(
                     transaction=Transaction(
@@ -271,19 +269,21 @@ class TestKafkaConsumerDatabase:
                     ),
                 )
                 
-                with patch("consumer.predictor_utility") as mock_predictor:
-                    mock_predictor.return_value = PredictionResult(
-                        transaction_id=transaction_data.transaction.transaction_id,
-                        merchant_id=transaction_data.transaction.merchant_id,
-                        account_id=transaction_data.transaction.account_id,
-                        is_fraud=False,
-                        fraud_probability=0.05,
-                    )
+                with patch("consumer.requests.post") as mock_post:
+                    mock_response = MagicMock()
+                    mock_response.json.return_value = {
+                        "transaction_id": transaction_data.transaction.transaction_id,
+                        "merchant_id": transaction_data.transaction.merchant_id,
+                        "account_id": transaction_data.transaction.account_id,
+                        "is_fraud": False,
+                        "fraud_probability": 0.05,
+                    }
+                    mock_post.return_value = mock_response
                     
-                    result = process_transaction(transaction_data, mock_artifact)
+                    result = detect_fraud(transaction_data)
                     
                     assert result is not None
-                    assert result.is_fraud is False
+                    assert result["is_fraud"] is False
 
     def test_parse_transaction_data_valid_json(self):
         """Test parsing valid JSON from Kafka message."""
