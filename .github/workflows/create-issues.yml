@@ -1,0 +1,73 @@
+name: Create Production Readiness Issues
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - ".github/workflows/create-issues.yml"
+      - "docs/production-readiness-issues.json"
+
+permissions:
+  issues: write
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create issues from JSON definitions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const issues = JSON.parse(
+              fs.readFileSync('docs/production-readiness-issues.json', 'utf8')
+            );
+
+            // Fetch existing open issues to avoid duplicates
+            const existingIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100 }
+            );
+            const existingTitles = new Set(
+              existingIssues
+                .filter(i => !i.pull_request)
+                .map(i => i.title)
+            );
+
+            for (const issue of issues) {
+              if (existingTitles.has(issue.title)) {
+                core.info(`Skipping (already exists): ${issue.title}`);
+                continue;
+              }
+              const createParams = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issue.title,
+                body: issue.body,
+              };
+              if (Array.isArray(issue.labels)) {
+                createParams.labels = issue.labels;
+              }
+              try {
+                const result = await github.rest.issues.create(createParams);
+                core.info(`Created issue #${result.data.number}: ${issue.title}`);
+              } catch (error) {
+                // Labels might not exist yet — retry without labels
+                core.warning(
+                  `Failed with labels for "${issue.title}": ${error.message}. Retrying without labels...`
+                );
+                const result = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issue.title,
+                  body: issue.body,
+                });
+                core.info(`Created issue #${result.data.number} (no labels): ${issue.title}`);
+              }
+            }
