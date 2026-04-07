@@ -34,7 +34,11 @@ jobs:
               github.rest.issues.listForRepo,
               { owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100 }
             );
-            const existingTitles = new Set(existingIssues.map(i => i.title));
+            const existingTitles = new Set(
+              existingIssues
+                .filter(i => !i.pull_request)
+                .map(i => i.title)
+            );
 
             for (const issue of issues) {
               if (existingTitles.has(issue.title)) {
