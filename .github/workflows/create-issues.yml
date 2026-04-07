@@ -2,6 +2,12 @@ name: Create Production Readiness Issues
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - ".github/workflows/create-issues.yml"
 
 permissions:
   issues: write
@@ -322,7 +328,20 @@ There is also no \`.env.example\` file, making it hard for new contributors to k
               }
             ];
 
+            // Fetch all existing open issues to avoid duplicates
+            const existingIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100
+            });
+            const existingTitles = new Set(existingIssues.map(i => i.title));
+
             for (const issue of issues) {
+              if (existingTitles.has(issue.title)) {
+                core.info(`Skipping (already exists): ${issue.title}`);
+                continue;
+              }
               try {
                 const result = await github.rest.issues.create({
                   owner: context.repo.owner,
