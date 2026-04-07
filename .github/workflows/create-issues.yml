@@ -45,14 +45,17 @@ jobs:
                 core.info(`Skipping (already exists): ${issue.title}`);
                 continue;
               }
+              const createParams = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issue.title,
+                body: issue.body,
+              };
+              if (Array.isArray(issue.labels)) {
+                createParams.labels = issue.labels;
+              }
               try {
-                const result = await github.rest.issues.create({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  title: issue.title,
-                  body: issue.body,
-                  labels: issue.labels,
-                });
+                const result = await github.rest.issues.create(createParams);
                 core.info(`Created issue #${result.data.number}: ${issue.title}`);
               } catch (error) {
                 // Labels might not exist yet — retry without labels
