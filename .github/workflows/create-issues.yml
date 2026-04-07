@@ -1,0 +1,346 @@
+name: Create Production Readiness Issues
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = [
+              {
+                title: "Replace SQLite with PostgreSQL for production-grade persistence",
+                body: `## Problem
+
+The service currently uses SQLite (\`sqlite:///data/frauddetection.db\`) as its persistence layer. While acceptable for development and local testing, SQLite has hard limitations that make it unsuitable for production:
+
+- **Single-writer constraint** – only one process can write at a time; concurrent API requests and Kafka consumer writes cause lock contention and \`database is locked\` errors under load.
+- **No network access** – SQLite is file-based and cannot be used in a distributed or multi-replica deployment without a shared volume, which is an anti-pattern.
+- **Limited scalability** – no connection pooling, no read replicas, no high-availability or failover story.
+- **No encryption at rest** out of the box.
+
+## Proposed Solution
+
+Replace SQLite with PostgreSQL:
+
+1. Add \`psycopg2-binary\` (sync) or \`asyncpg\` (async) to \`requirements.txt\`.
+2. Read the connection string from an environment variable (\`DATABASE_URL\`) in \`app/services/prediction_store.py\` instead of hardcoding \`sqlite:///data/frauddetection.db\`.
+3. Add a \`postgres\` service to \`docker-compose.yml\` with a \`healthcheck\`, and make the \`api\` and \`consumer\` services depend on it.
+4. Update the \`Dockerfile\` to install any required system libraries (\`libpq-dev\`).
+5. Update unit tests to continue using SQLite (in-memory) for speed; add an integration test layer that targets PostgreSQL via a test container.
+6. Document the new \`DATABASE_URL\` variable in the README environment-variables table.
+
+## Acceptance Criteria
+
+- [ ] \`DATABASE_URL\` environment variable drives the database connection string.
+- [ ] \`docker compose up\` starts a PostgreSQL container and the API connects to it successfully.
+- [ ] All existing unit tests continue to pass (SQLite in-memory).
+- [ ] The README environment-variables table includes \`DATABASE_URL\`.`,
+                labels: ["enhancement", "production-readiness"]
+              },
+              {
+                title: "Replace print() statements with structured logging",
+                body: `## Problem
+
+The codebase uses bare \`print()\` calls throughout \`consumer.py\`, \`producer.py\`, and \`app/main.py\` for operational output. This makes the service difficult to operate in production because:
+
+- **No log levels** – informational messages, warnings, and errors are indistinguishable.
+- **No structured output** – log aggregators (ELK, Datadog, Loki) cannot parse or filter plain text.
+- **No correlation IDs** – there is no way to trace a single transaction across log lines.
+- **Silence by default** – \`print()\` is not configurable; you cannot suppress debug output without code changes.
+
+## Proposed Solution
+
+Introduce Python's built-in \`logging\` module (or \`structlog\` for JSON output):
+
+1. Add a \`app/logging_config.py\` module that configures a JSON formatter and reads log level from \`LOG_LEVEL\` environment variable (default: \`INFO\`).
+2. Replace every \`print()\` call in \`consumer.py\`, \`producer.py\`, and \`app/main.py\` with appropriate logger calls (\`logger.info\`, \`logger.warning\`, \`logger.error\`).
+3. Include \`transaction_id\` as a structured field in log records wherever available.
+4. Add \`LOG_LEVEL\` to the README environment-variables table.
+
+## Acceptance Criteria
+
+- [ ] No bare \`print()\` calls remain in application code (producer, consumer, app).
+- [ ] Log output is structured JSON when \`LOG_FORMAT=json\` is set.
+- [ ] Log level is controlled by the \`LOG_LEVEL\` environment variable.
+- [ ] \`transaction_id\` is included in prediction log records.`,
+                labels: ["enhancement", "production-readiness"]
+              },
+              {
+                title: "Add API authentication and authorisation",
+                body: `## Problem
+
+All API endpoints (\`POST /detect\`, \`GET /detect\`, \`GET /detect/{id}\`) are completely unauthenticated. Anyone with network access to port 8000 can:
+
+- Submit arbitrary transactions and pollute the fraud database.
+- Read all stored prediction results, which may contain sensitive account IDs and merchant data.
+
+## Proposed Solution
+
+Add API-key-based authentication as a first step (JWT bearer tokens can follow later):
+
+1. Read a shared secret from the \`API_KEY\` environment variable.
+2. Add a FastAPI \`Security\` dependency that validates the \`X-API-Key\` header on every request.
+3. Return \`HTTP 401 Unauthorized\` when the header is missing and \`HTTP 403 Forbidden\` when the key is wrong.
+4. Update the Swagger UI to support the \`apiKey\` security scheme so the \`/docs\` page remains usable.
+5. Update the README example \`curl\` command to include the header.
+6. Update existing tests to pass a valid API key in request headers.
+
+## Acceptance Criteria
+
+- [ ] All endpoints require a valid \`X-API-Key\` header.
+- [ ] Requests without a key return \`401\`; requests with a wrong key return \`403\`.
+- [ ] \`API_KEY\` is documented in the README environment-variables table.
+- [ ] The Swagger UI (\`/docs\`) lets users authenticate with the API key.
+- [ ] All existing tests are updated and pass.`,
+                labels: ["enhancement", "production-readiness", "security"]
+              },
+              {
+                title: "Add health-check and readiness endpoints",
+                body: `## Problem
+
+The API currently has no health-check endpoint. This prevents:
+
+- **Docker / Kubernetes** from knowing whether the container is healthy and ready to accept traffic.
+- **Load balancers** from routing around unhealthy instances.
+- **On-call engineers** from quickly diagnosing whether the service, database, and model are all up.
+
+The \`docker-compose.yml\` \`api\` service has no \`healthcheck\` block, so Docker will mark it healthy immediately after the process starts regardless of whether FastAPI is actually ready.
+
+## Proposed Solution
+
+1. Add \`GET /health\` – a **liveness** probe that returns \`{"status": "ok"}\` with \`HTTP 200\` whenever the process is running.
+2. Add \`GET /ready\` – a **readiness** probe that:
+   - Checks the database is reachable (runs a trivial \`SELECT 1\`).
+   - Checks the ML model artifact is loaded.
+   - Returns \`{"status": "ok"}\` (\`200\`) if both pass, or \`{"status": "unavailable", "detail": "..."}\` (\`503\`) if either fails.
+3. Update the \`api\` service in \`docker-compose.yml\` to use \`GET /health\` as its Docker healthcheck.
+4. Update the \`consumer\` service's \`depends_on\` condition to \`service_healthy\` for the \`api\` service.
+
+## Acceptance Criteria
+
+- [ ] \`GET /health\` returns \`200 {"status": "ok"}\` when the service is running.
+- [ ] \`GET /ready\` returns \`200\` when DB and model are available; \`503\` otherwise.
+- [ ] The \`api\` service in \`docker-compose.yml\` has a passing Docker healthcheck.
+- [ ] Tests cover both the healthy and unhealthy readiness scenarios.`,
+                labels: ["enhancement", "production-readiness"]
+              },
+              {
+                title: "Pin Dockerfile to a stable Python version (replace python:3.14-slim)",
+                body: `## Problem
+
+The \`Dockerfile\` currently uses \`python:3.14-slim\` as both its build and runtime base images:
+
+\`\`\`dockerfile
+FROM python:3.14-slim AS builder
+FROM python:3.14-slim AS runtime
+\`\`\`
+
+Python 3.14 is **not yet released** (it is in alpha/beta as of early 2026). Using a pre-release image in production means:
+
+- The image tag is a **moving target** – today's build may differ from tomorrow's because Docker Hub rebuilds \`3.14-slim\` as new alphas/RCs are published.
+- Third-party packages in \`requirements.txt\` may not have stable wheels for 3.14, causing unexpected build failures.
+- ABI-incompatible changes between pre-release Python builds can break \`pickle\`-serialised model artifacts.
+- The CI workflow (\`.github/workflows/tests.yml\`) also pins \`python-version: "3.14"\`, magnifying this risk.
+
+## Proposed Solution
+
+1. Change the Dockerfile base images to \`python:3.12-slim\` (the current stable LTS version).
+2. Update \`.github/workflows/tests.yml\` to use \`python-version: "3.12"\`.
+3. Update \`.python-version\` (if present) and the README prerequisites section to reflect 3.12.
+
+## Acceptance Criteria
+
+- [ ] \`Dockerfile\` references \`python:3.12-slim\` (or latest stable) for both stages.
+- [ ] CI workflow uses \`python-version: "3.12"\`.
+- [ ] \`docker compose up --build\` succeeds and all tests pass against the new base image.`,
+                labels: ["bug", "production-readiness"]
+              },
+              {
+                title: "Add CI pipeline stages for linting and security scanning",
+                body: `## Problem
+
+The existing \`.github/workflows/tests.yml\` runs \`pytest\` on push and pull requests, but it is missing several quality-gate stages that are standard for production services:
+
+- **No linter / formatter check** – code style drift (e.g., the unused \`import random\` in \`app/main.py\`) goes undetected.
+- **No static type checking** – missing or incorrect type annotations cause runtime surprises.
+- **No dependency vulnerability scan** – outdated packages with known CVEs can ship unnoticed.
+- **No container image scan** – the Docker image may contain OS-level vulnerabilities.
+
+## Proposed Solution
+
+Extend \`.github/workflows/tests.yml\` (or add separate workflow files) with the following jobs:
+
+1. **Lint** – run \`ruff check .\` (or \`flake8\`) and \`ruff format --check .\` to enforce consistent style.
+2. **Type check** – run \`mypy app/ consumer.py producer.py\` with a \`pyproject.toml\` config.
+3. **Dependency audit** – run \`pip-audit\` (or \`safety check\`) to flag known CVEs in \`requirements.txt\`.
+4. **Container scan** – run \`trivy image fraud-rule-engine:latest\` (via the \`aquasecurity/trivy-action\`) after the Docker build step.
+
+Add \`ruff\`, \`mypy\`, and \`pip-audit\` to a \`[dependency-groups]\` dev section in \`pyproject.toml\` so they are not included in the production image.
+
+## Acceptance Criteria
+
+- [ ] \`ruff check\` and \`ruff format --check\` pass on the codebase.
+- [ ] \`mypy\` passes with no errors on \`app/\`, \`consumer.py\`, and \`producer.py\`.
+- [ ] \`pip-audit\` reports no critical/high vulnerabilities.
+- [ ] CI fails on a PR that introduces a lint error or a new high-severity dependency CVE.`,
+                labels: ["enhancement", "ci-cd"]
+              },
+              {
+                title: "Add rate limiting to the fraud detection API",
+                body: `## Problem
+
+The \`POST /detect\` endpoint performs ML inference on every request with no rate limit. An unauthenticated (or malicious) caller can:
+
+- Flood the API with thousands of inference requests per second, exhausting CPU and memory.
+- Trigger uncontrolled writes to the database, growing it indefinitely.
+- Perform automated enumeration of the model's decision boundary (model extraction attack).
+
+## Proposed Solution
+
+Add per-client rate limiting using \`slowapi\` (a FastAPI-compatible wrapper around \`limits\`):
+
+1. Add \`slowapi\` to \`requirements.txt\`.
+2. Initialise a \`Limiter\` keyed on the client IP (or API key once authentication is added) in \`app/main.py\`.
+3. Decorate \`POST /detect\` with \`@limiter.limit("60/minute")\` (configurable via \`RATE_LIMIT\` env var).
+4. Return \`HTTP 429 Too Many Requests\` with a \`Retry-After\` header when the limit is exceeded.
+5. Add \`RATE_LIMIT\` to the README environment-variables table.
+6. Add a test that verifies a \`429\` is returned after the configured limit is hit.
+
+## Acceptance Criteria
+
+- [ ] \`POST /detect\` is rate-limited (default: 60 req/min per IP).
+- [ ] Exceeding the limit returns \`HTTP 429\` with a \`Retry-After\` header.
+- [ ] Rate limit is configurable via \`RATE_LIMIT\` environment variable.
+- [ ] A unit test verifies the \`429\` behaviour.`,
+                labels: ["enhancement", "security"]
+              },
+              {
+                title: "Improve error handling and return RFC 7807 Problem Details responses",
+                body: `## Problem
+
+The API currently has several error-handling gaps:
+
+1. **No error response on duplicate transaction IDs** – \`POST /detect\` will raise an unhandled \`IntegrityError\` (SQLite/Postgres unique constraint) and return a \`500 Internal Server Error\` with a raw Python traceback.
+2. **Generic \`Exception\` in consumer** – \`detect_fraud()\` raises \`Exception("Fraud API url not set")\` which is too broad and loses type information.
+3. **No model-load failure handling** – if \`best_fraud_model.pkl\` is missing or corrupt, \`load_model_artifact()\` raises an unhandled \`FileNotFoundError\` or \`UnpicklingError\`, crashing the first POST request with a \`500\`.
+4. **No request validation error customisation** – Pydantic validation errors (e.g., \`amount <= 0\`) already return \`422\`, but the response body is not consistent with the rest of the error format.
+
+## Proposed Solution
+
+1. Add a FastAPI exception handler for \`sqlalchemy.exc.IntegrityError\` that returns \`HTTP 409 Conflict\` with a JSON body \`{"detail": "Transaction ID already exists"}\`.
+2. Replace \`raise Exception\` in \`consumer.py\` with a typed custom exception (\`FraudAPINotConfiguredError\`).
+3. Wrap \`load_model_artifact()\` in a try/except in the startup lifespan and surface a clear \`HTTP 503\` if the model cannot be loaded.
+4. Define a consistent error schema (RFC 7807 Problem Details: \`type\`, \`title\`, \`status\`, \`detail\`) for all \`4xx\`/\`5xx\` responses.
+5. Update tests to assert on the new error response shapes.
+
+## Acceptance Criteria
+
+- [ ] Submitting a duplicate \`transaction_id\` returns \`HTTP 409\` (not \`500\`).
+- [ ] Missing or corrupt model file causes the service to return \`HTTP 503\` during startup, not crash mid-request.
+- [ ] All error responses use a consistent JSON schema.
+- [ ] Consumer raises a typed exception instead of the bare \`Exception\`.`,
+                labels: ["bug", "enhancement"]
+              },
+              {
+                title: "Add pagination and filtering to GET /detect endpoint",
+                body: `## Problem
+
+\`GET /detect\` returns **all** prediction results from the database in a single response:
+
+\`\`\`python
+results = session.exec(select(PredictionResult)).all()
+return [PredictionResult.model_validate(r) for r in results]
+\`\`\`
+
+In a production deployment processing thousands of transactions per day, this will:
+
+- Return megabytes of JSON for every list request.
+- Perform a full table scan on every call.
+- Cause the API to time out or OOM as the database grows.
+
+## Proposed Solution
+
+Add cursor- or offset-based pagination and optional filtering query parameters:
+
+1. Add \`skip: int = 0\` and \`limit: int = Query(default=50, le=500)\` parameters to \`GET /detect\`.
+2. Apply \`.offset(skip).limit(limit)\` to the SQLModel query.
+3. Add optional filter parameters: \`is_fraud: bool | None = None\`, \`account_id: str | None = None\`.
+4. Return a paginated envelope: \`{"items": [...], "total": N, "skip": 0, "limit": 50}\`.
+5. Add a \`Link\` header with \`next\` / \`prev\` relations for discoverability.
+6. Update the README API table to document the query parameters.
+7. Update or add tests that exercise pagination and filtering.
+
+## Acceptance Criteria
+
+- [ ] \`GET /detect?skip=0&limit=10\` returns at most 10 results.
+- [ ] \`GET /detect?is_fraud=true\` returns only fraudulent predictions.
+- [ ] \`GET /detect?account_id=CAPITEC123\` filters by account.
+- [ ] Response includes \`total\` count and pagination metadata.
+- [ ] \`limit\` is capped at 500; exceeding it returns \`HTTP 422\`.`,
+                labels: ["enhancement"]
+              },
+              {
+                title: "Externalise all hardcoded configuration values",
+                body: `## Problem
+
+Several configuration values are hardcoded in application source files rather than being read from environment variables:
+
+| File | Hardcoded value | Issue |
+|---|---|---|
+| \`app/services/prediction_store.py\` | \`"sqlite:///data/frauddetection.db"\` | Cannot change DB without editing source |
+| \`app/services/predictor.py\` | \`"app/fraud_detection/best_fraud_model.pkl"\` | Cannot swap models without rebuilding the image |
+| \`app/services/predictor.py\` | \`data["high_amount"] = int(data["amount"] > 900)\` | Business threshold is buried in code |
+| \`consumer.py\` | \`timeout=30\` | Cannot tune timeouts without code change |
+
+There is also no \`.env.example\` file, making it hard for new contributors to know which variables to set.
+
+## Proposed Solution
+
+1. **Database URL** – read from \`DATABASE_URL\` env var in \`prediction_store.py\` (defaulting to the current SQLite path for local dev).
+2. **Model path** – read from \`MODEL_ARTIFACT_PATH\` env var in \`predictor.py\`.
+3. **High-amount threshold** – read from \`HIGH_AMOUNT_THRESHOLD\` env var (default: \`900\`).
+4. **API timeout** – read from \`FRAUD_API_TIMEOUT\` env var (default: \`30\`) in \`consumer.py\`.
+5. Create a \`.env.example\` file at the repo root listing all environment variables with default values and descriptions.
+6. Update the README environment-variables table to include the new variables.
+7. Update \`docker-compose.yml\` to pass the new variables to each service.
+
+## Acceptance Criteria
+
+- [ ] No configuration values are hardcoded in \`app/\` or \`consumer.py\`.
+- [ ] A \`.env.example\` file exists and is complete.
+- [ ] All new env vars are documented in the README.
+- [ ] The service starts correctly when the env vars are absent (using documented defaults).`,
+                labels: ["enhancement", "production-readiness"]
+              }
+            ];
+
+            for (const issue of issues) {
+              try {
+                const result = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issue.title,
+                  body: issue.body,
+                  labels: issue.labels
+                });
+                core.info(`Created issue #${result.data.number}: ${issue.title}`);
+              } catch (error) {
+                // Labels might not exist yet — retry without labels
+                core.warning(`Failed with labels for "${issue.title}": ${error.message}. Retrying without labels...`);
+                const result = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issue.title,
+                  body: issue.body
+                });
+                core.info(`Created issue #${result.data.number} (no labels): ${issue.title}`);
+              }
+            }
